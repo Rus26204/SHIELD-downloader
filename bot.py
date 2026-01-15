@@ -4,15 +4,45 @@ import logging
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# ========== НАСТРОЙКИ ==========
+# ========== ПРОСТОЙ HTTP СЕРВЕР ДЛЯ RENDER PING ==========
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/health' or self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'OK 🤖 Telegram Sheets Bot is running')
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def log_message(self, format, *args):
+        pass  # Отключаем логи запросов
+
+def run_health_server():
+    """Запускает HTTP сервер для health checks"""
+    # Render автоматически назначает порт через переменную PORT
+    port = int(os.environ.get('PORT', 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthHandler)
+    print(f"✅ Health server started on port {port}")
+    print(f"🌐 Render URL: https://your-service.onrender.com/health")
+    server.serve_forever()
+
+# Запускаем health server в отдельном потоке (ДО запуска бота!)
+health_thread = threading.Thread(target=run_health_server, daemon=True)
+health_thread.start()
+
+# ========== НАСТРОЙКИ БОТА ==========
 SPREADSHEET_ID = "14x5PZnq9AX8CcRW1cl5hyne0IndtNh0L"
 SHEETS = {
     "Список_карт_номиналов": "1674053030",
     "Список_номеров_СБП": "1789244637"
 }
 
-# Токен будет из переменных окружения Render
+# Токен из переменных окружения Render
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 # Логирование
@@ -111,9 +141,15 @@ def main():
     """Основная функция"""
     logger.info("Запуск бота...")
     
+    # Проверка токена
     if not TOKEN:
         logger.error("❌ TELEGRAM_BOT_TOKEN не установлен!")
+        print("=" * 60)
         print("ОШИБКА: Добавьте TELEGRAM_BOT_TOKEN в Environment Variables на Render!")
+        print("Зайдите в Render → Environment → Add Environment Variable")
+        print("Key: TELEGRAM_BOT_TOKEN")
+        print("Value: ваш_токен_от_BotFather")
+        print("=" * 60)
         return
     
     try:
@@ -131,11 +167,13 @@ def main():
         
         # Запускаем бота
         logger.info("🤖 Бот запущен и ожидает сообщений...")
-        print("=" * 50)
-        print("Бот успешно запущен на Render!")
-        print(f"Имя бота: Sheets Downloader")
-        print("Ожидаю сообщений в Telegram...")
-        print("=" * 50)
+        print("=" * 60)
+        print("✅ ВСЁ ГОТОВО!")
+        print("✅ Health сервер запущен на порту")
+        print("✅ Telegram бот запущен")
+        print("=" * 60)
+        print("Проверьте бота в Telegram: /download")
+        print("=" * 60)
         
         application.run_polling()
         
