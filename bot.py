@@ -93,7 +93,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 response.raise_for_status()
                 
                 # Отправляем файл
-                filename = f"{sheet_name}_{date_str}.csv"
+                filename = f"{sheet_name}.csv"
                 await context.bot.send_document(
                     chat_id=query.message.chat_id,
                     document=response.content,
