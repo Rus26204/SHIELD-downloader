@@ -167,6 +167,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📚 Доступные команды:\n"
         "/start - Начать работу\n"
         "/download - Получить CSV файлы\n"
+        "/status - Проверка состояния\n"
         "/help - Справка"
     )
 
