@@ -40,10 +40,10 @@ health_thread = threading.Thread(target=run_health_server, daemon=True)
 health_thread.start()
 
 # ========== НАСТРОЙКИ БОТА ==========
-SPREADSHEET_ID = "14x5PZnq9AX8CcRW1cl5hyne0IndtNh0L"
+SPREADSHEET_ID = "17VDwwzNG7ZLM-HAmTTApW5NARkDsieH22D7vg5_jTCA"
 SHEETS = {
-    "Список_карт_номиналов": "1789244637",
-    "Список_номеров_СБП": "1674053030"
+    "Список_карт_номиналов": "0",
+    "Список_номеров_СБП": "2146222680"
 }
 
 # Токен из переменных окружения Render
