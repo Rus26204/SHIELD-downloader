@@ -349,21 +349,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"👋 Привет {user.first_name}!\n"
         f"Я бот для выгрузки данных из Платежного Щита.\n\n"
-        f"Используй /download чтобы получить сводный xlsx-файл."
+        f"Используй /download чтобы получить сводный xlsx-файл + исходные CSV."
     )
     logger.info(f"Пользователь {user.id} запустил бота")
 
 
 async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /download - сразу скачивает и присылает xlsx без кнопки"""
+    """Команда /download - сразу скачивает и присылает xlsx + CSV без кнопки"""
     user = update.effective_user
     logger.info(f"Пользователь {user.id} запросил /download")
 
     # Определяем текущий месяц для имён листов
     month_name = get_current_month_name()
     logger.info(f"Текущий месяц для имён листов: {month_name}")
-
-    await update.message.reply_text("⏳ Скачиваю данные из Google Sheets...")
 
     # Скачиваем все CSV в память, ключи — отображаемые имена с месяцем
     sheets_data = {}
@@ -387,7 +385,6 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Собираем один общий xlsx
-    await update.message.reply_text(f"🔧 Собираю xlsx из {len(sheets_data)} листов...")
     try:
         xlsx_bytes = build_xlsx(sheets_data)
     except Exception as e:
@@ -397,7 +394,6 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Файл всегда называется pls.xlsx (имя фиксированное, без даты)
     filename = "pls.xlsx"
-    date_str = datetime.now().strftime("%Y-%m-%d")
     year_str = datetime.now().strftime("%Y")
 
     # Подсчёт строк в каждом листе для отчёта
@@ -407,11 +403,8 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sheet_stats.append(f"• {name}: {len(rows)} строк")
 
     caption = (
-        f"🛡️ SHIELD — сводный файл\n"
-        f"📊 Листов: {len(sheets_data)}\n"
-        f"📅 Месяц: {month_name} {year_str}\n"
-        f"🗓️ Дата выгрузки: {date_str}\n\n"
-        f"📝 Содержимое:\n" + "\n".join(sheet_stats)
+        f"🛡️ SHIELD — {month_name} {year_str}\n\n"
+        + "\n".join(sheet_stats)
     )
     if errors:
         caption += f"\n\n⚠️ Не скачано: {len(errors)}"
@@ -424,12 +417,22 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     logger.info(f"Отправлен файл: {filename} ({len(xlsx_bytes)} байт) пользователю {user.id}")
 
-    # Финальное сообщение
-    final_msg = f"✅ Файл {filename} отправлен"
-    if errors:
-        final_msg += f"\n⚠️ Ошибки: {len(errors)} шт."
-    await update.message.reply_text(final_msg)
-    logger.info(f"Завершено для пользователя {user.id}: {final_msg}")
+    # Дополнительно отправляем оригинальные CSV-файлы по каждому листу отдельно
+    for display_name, csv_bytes in sheets_data.items():
+        # Имя CSV: <имя листа>.csv — с месяцем для консистентности с xlsx
+        csv_filename = f"{display_name}.csv"
+        try:
+            await context.bot.send_document(
+                chat_id=update.effective_chat.id,
+                document=csv_bytes,
+                filename=csv_filename,
+            )
+            logger.info(f"Отправлен CSV: {csv_filename} ({len(csv_bytes)} байт)")
+        except Exception as e:
+            logger.error(f"Ошибка отправки CSV {csv_filename}: {e}")
+            await update.message.reply_text(f"❌ Не удалось отправить {csv_filename}")
+
+    logger.info(f"Завершено для пользователя {user.id}")
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -437,7 +440,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📚 Доступные команды:\n"
         "/start - Начать работу\n"
-        "/download - Получить сводный xlsx-файл\n"
+        "/download - Получить сводный xlsx + исходные CSV\n"
         "/status - Проверка состояния\n"
         "/help - Справка"
     )
