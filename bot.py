@@ -4,8 +4,8 @@ import logging
 import csv
 import io
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import signal
@@ -266,98 +266,81 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /download - показывает кнопку"""
-    keyboard = [[InlineKeyboardButton("📥 Скачать SHIELD.xlsx", callback_data='download_csv')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Нажмите кнопку для скачивания сводного файла:", reply_markup=reply_markup)
-    logger.info(f"Пользователь {update.effective_user.id} запросил файлы")
+    """Команда /download - сразу скачивает и присылает xlsx без кнопки"""
+    user = update.effective_user
+    logger.info(f"Пользователь {user.id} запросил /download")
 
+    # Определяем текущий месяц для имён листов
+    month_name = get_current_month_name()
+    logger.info(f"Текущий месяц для имён листов: {month_name}")
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик нажатия на кнопку - скачивает все листы и собирает один xlsx"""
-    query = update.callback_query
-    await query.answer()
-    if query.data == 'download_csv':
-        user = query.from_user
-        logger.info(f"Пользователь {user.id} нажал кнопку скачивания")
-        await query.edit_message_text("⏳ Скачиваю данные из Google Sheets...")
+    await update.message.reply_text("⏳ Скачиваю данные из Google Sheets...")
 
-        # Определяем текущий месяц для имён листов
-        month_name = get_current_month_name()
-        logger.info(f"Текущий месяц для имён листов: {month_name}")
-
-        # Скачиваем все CSV в память, ключи — отображаемые имена с месяцем
-        sheets_data = {}
-        errors = []
-        for sheet_key, gid in SHEETS.items():
-            display_name = get_sheet_display_name(sheet_key, month_name)
-            try:
-                url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
-                response = requests.get(url, timeout=30)
-                response.raise_for_status()
-                sheets_data[display_name] = response.content
-                logger.info(f"Скачан лист '{display_name}': {len(response.content)} байт")
-            except Exception as e:
-                logger.error(f"Ошибка скачивания {display_name}: {e}")
-                errors.append(f"{display_name}: {str(e)[:80]}")
-
-        if not sheets_data:
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text="❌ Не удалось скачать ни один лист из Google Sheets"
-            )
-            return
-
-        # Собираем один общий xlsx
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text=f"🔧 Собираю xlsx из {len(sheets_data)} листов..."
-        )
+    # Скачиваем все CSV в память, ключи — отображаемые имена с месяцем
+    sheets_data = {}
+    errors = []
+    for sheet_key, gid in SHEETS.items():
+        display_name = get_sheet_display_name(sheet_key, month_name)
         try:
-            xlsx_bytes = build_xlsx(sheets_data)
+            url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            sheets_data[display_name] = response.content
+            logger.info(f"Скачан лист '{display_name}': {len(response.content)} байт")
         except Exception as e:
-            logger.error(f"Ошибка сборки xlsx: {e}")
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=f"❌ Ошибка при сборке xlsx: {str(e)[:100]}"
-            )
-            return
+            logger.error(f"Ошибка скачивания {display_name}: {e}")
+            errors.append(f"{display_name}: {str(e)[:80]}")
 
-        # Имя файла с месяцем и годом: SHIELD_Октябрь_2026.xlsx
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        year_str = datetime.now().strftime("%Y")
-        filename = f"SHIELD_{month_name}_{year_str}.xlsx"
-
-        # Подсчёт строк в каждом листе для отчёта
-        sheet_stats = []
-        for name, csv_bytes in sheets_data.items():
-            rows = parse_csv(csv_bytes)
-            sheet_stats.append(f"• {name}: {len(rows)} строк")
-
-        caption = (
-            f"🛡️ SHIELD — сводный файл\n"
-            f"📊 Листов: {len(sheets_data)}\n"
-            f"📅 Месяц: {month_name} {year_str}\n"
-            f"🗓️ Дата выгрузки: {date_str}\n\n"
-            f"📝 Содержимое:\n" + "\n".join(sheet_stats)
+    if not sheets_data:
+        await update.message.reply_text(
+            "❌ Не удалось скачать ни один лист из Google Sheets"
         )
-        if errors:
-            caption += f"\n\n⚠️ Не скачано: {len(errors)}"
+        return
 
-        await context.bot.send_document(
-            chat_id=query.message.chat_id,
-            document=xlsx_bytes,
-            filename=filename,
-            caption=caption
-        )
-        logger.info(f"Отправлен файл: {filename} ({len(xlsx_bytes)} байт)")
+    # Собираем один общий xlsx
+    await update.message.reply_text(f"🔧 Собираю xlsx из {len(sheets_data)} листов...")
+    try:
+        xlsx_bytes = build_xlsx(sheets_data)
+    except Exception as e:
+        logger.error(f"Ошибка сборки xlsx: {e}")
+        await update.message.reply_text(f"❌ Ошибка при сборке xlsx: {str(e)[:100]}")
+        return
 
-        # Финальное сообщение
-        final_msg = f"✅ Файл {filename} отправлен"
-        if errors:
-            final_msg += f"\n⚠️ Ошибки: {len(errors)} шт."
-        await context.bot.send_message(chat_id=query.message.chat_id, text=final_msg)
-        logger.info(f"Завершено для пользователя {user.id}: {final_msg}")
+    # Файл всегда называется pls.xlsx (имя фиксированное, без даты)
+    filename = "pls.xlsx"
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    year_str = datetime.now().strftime("%Y")
+
+    # Подсчёт строк в каждом листе для отчёта
+    sheet_stats = []
+    for name, csv_bytes in sheets_data.items():
+        rows = parse_csv(csv_bytes)
+        sheet_stats.append(f"• {name}: {len(rows)} строк")
+
+    caption = (
+        f"🛡️ SHIELD — сводный файл\n"
+        f"📊 Листов: {len(sheets_data)}\n"
+        f"📅 Месяц: {month_name} {year_str}\n"
+        f"🗓️ Дата выгрузки: {date_str}\n\n"
+        f"📝 Содержимое:\n" + "\n".join(sheet_stats)
+    )
+    if errors:
+        caption += f"\n\n⚠️ Не скачано: {len(errors)}"
+
+    await context.bot.send_document(
+        chat_id=update.effective_chat.id,
+        document=xlsx_bytes,
+        filename=filename,
+        caption=caption
+    )
+    logger.info(f"Отправлен файл: {filename} ({len(xlsx_bytes)} байт) пользователю {user.id}")
+
+    # Финальное сообщение
+    final_msg = f"✅ Файл {filename} отправлен"
+    if errors:
+        final_msg += f"\n⚠️ Ошибки: {len(errors)} шт."
+    await update.message.reply_text(final_msg)
+    logger.info(f"Завершено для пользователя {user.id}: {final_msg}")
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -443,7 +426,6 @@ def main():
         application.add_handler(CommandHandler("download", download_command))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("status", status_command))
-        application.add_handler(CallbackQueryHandler(button_handler))
 
         # Обработчик ошибок
         application.add_error_handler(error_handler)
