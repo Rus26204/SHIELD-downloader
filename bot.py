@@ -61,6 +61,33 @@ SHEET_DISPLAY_NAMES = {
     "Список_номеров_СБП": "Список номеров СБП",
 }
 
+# Эталонные столбцы для каждого листа (по базовому имени, без месяца).
+# При сборке xlsx заголовок CSV будет заменён на эти имена,
+# а число колонок в каждой строке приведено к эталону:
+#   - лишние колонки обрезаются
+#   - недостающие дополняются пустыми строками
+EXPECTED_COLUMNS = {
+    "Список карт номиналов": [
+        "Дата",
+        "Карта",
+        "Название Казино",
+        "Зеркало (URL)",
+        "Платежная система (URL)",
+        "ФИО",
+        "Название банка",
+    ],
+    "Список номеров СБП": [
+        "Дата",
+        "Номер СБП",
+        "Название Казино",
+        "Зеркало (URL)",
+        "Платежная система (URL)",
+        "ФИО",
+        "Название банка",
+        "Доп. инфо",
+    ],
+}
+
 # Русские названия месяцев (явный словарь — не зависит от системной локали Render)
 RU_MONTHS = {
     1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
@@ -125,6 +152,58 @@ def sanitize_sheet_name(name: str) -> str:
     return name[:31]
 
 
+def get_base_display_name(sheet_name: str) -> str:
+    """
+    Возвращает базовое имя листа без суффикса месяца.
+    'Список карт номиналов.Октябрь' → 'Список карт номиналов'
+    Если совпадения нет — возвращает исходное имя как есть.
+    """
+    if sheet_name in EXPECTED_COLUMNS:
+        return sheet_name
+    if "." in sheet_name:
+        base = sheet_name.rsplit(".", 1)[0]
+        if base in EXPECTED_COLUMNS:
+            return base
+    return sheet_name
+
+
+def normalize_row_to_expected(row: list, expected_columns: list) -> list:
+    """
+    Подгоняет строку данных под ожидаемое число колонок:
+    - если в row больше значений — лишние обрезаются
+    - если меньше — дополняется пустыми строками
+    """
+    expected_count = len(expected_columns)
+    if len(row) >= expected_count:
+        return row[:expected_count]
+    return row + [""] * (expected_count - len(row))
+
+
+def apply_expected_columns(rows: list, sheet_name: str) -> tuple:
+    """
+    Если для листа заданы эталонные столбцы — заменяет заголовок CSV на эталонный
+    и приводит все строки данных к ожидаемому числу колонок.
+
+    :param rows: строки CSV (первая строка — заголовок)
+    :param sheet_name: имя листа (с месяцем или без)
+    :return: (новые_строки, базовое_имя) — для логирования
+    """
+    base_name = get_base_display_name(sheet_name)
+    expected_cols = EXPECTED_COLUMNS.get(base_name)
+    if not expected_cols:
+        return rows, base_name
+
+    if not rows:
+        # Нет данных, но есть эталонный заголовок — выведем только его
+        return [list(expected_cols)], base_name
+
+    data_rows = rows[1:]  # без старого заголовка
+    new_rows = [list(expected_cols)] + [
+        normalize_row_to_expected(r, expected_cols) for r in data_rows
+    ]
+    return new_rows, base_name
+
+
 def parse_csv(content: bytes):
     """
     Парсит CSV из байтов в список строк.
@@ -157,6 +236,16 @@ def build_xlsx(sheets_data: dict) -> bytes:
     for sheet_name, csv_bytes in sheets_data.items():
         rows = parse_csv(csv_bytes)
         ws = wb.create_sheet(title=sanitize_sheet_name(sheet_name))
+
+        # Если для этого листа заданы эталонные столбцы — заменяем заголовок CSV
+        # на эталонный и приводим число колонок в каждой строке к эталону
+        rows, base_name = apply_expected_columns(rows, sheet_name)
+        if base_name in EXPECTED_COLUMNS:
+            logger.info(
+                f"Лист '{sheet_name}': применены эталонные столбцы "
+                f"({len(EXPECTED_COLUMNS[base_name])} шт.), "
+                f"строк данных: {max(len(rows) - 1, 0)}"
+            )
 
         if not rows:
             ws["A1"] = "Нет данных"
