@@ -15,6 +15,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+# Импортируем коллекцию цитат из соседнего модуля
+# (365+ мемных цитат про Джейсона Стэтхема — на каждый день года)
+from quotes import STATHAM_QUOTES
+
 # ========== ПРОСТОЙ HTTP СЕРВЕР ДЛЯ RENDER PING ==========
 class HealthHandler(BaseHTTPRequestHandler):
     def do_HEAD(self):
@@ -104,6 +108,25 @@ RU_MONTHS = {
     5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
     9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
 }
+
+# ========== ЦИТАТЫ ДНЯ (ДЖЕЙСОН СТЭТХЕМ) ==========
+# Коллекция цитат вынесена в отдельный модуль quotes.py — 366 штук на каждый день года.
+# Цитата выбирается детерминированно по дню года (1-366),
+# поэтому одна цитата действует весь день, а завтра сменится следующей.
+
+
+def get_daily_quote() -> str:
+    """
+    Возвращает цитату дня по Джейсону Стэтхему.
+    Выбор по дню года — цитата одна на весь день, завтра (00:00) сменится.
+    """
+    today = datetime.now()
+    # Номер дня в году: 1 января = 1, 31 декабря = 365 (или 366 в високосный год)
+    day_of_year = today.timetuple().tm_yday
+    # Берём по модулю длины списка, чтобы не вылететь за пределы
+    # (хотя 366 цитат покрывают весь год, включая високосный)
+    index = day_of_year % len(STATHAM_QUOTES)
+    return STATHAM_QUOTES[index]
 
 
 def get_current_month_name() -> str:
@@ -417,6 +440,13 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Определяем текущий месяц для имён листов
     month_name = get_current_month_name()
     logger.info(f"Текущий месяц для имён листов: {month_name}")
+
+    # Одно информационное сообщение перед началом работы — цитата дня
+    quote = get_daily_quote()
+    await update.message.reply_text(
+        f"⏳ Формирую сводный xlsx и исходные CSV...\n\n"
+        f"📝 Цитата дня:\n_{quote}_"
+    )
 
     # Скачиваем все CSV в память, ключи — отображаемые имена с месяцем
     sheets_data = {}
