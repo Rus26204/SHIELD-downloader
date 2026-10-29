@@ -88,6 +88,16 @@ EXPECTED_COLUMNS = {
     ],
 }
 
+# Замены значений ячеек в xlsx по имени столбца.
+# Если ячейка содержит любой из keywords (case-insensitive substring) —
+# вся ячейка заменяется на replacement.
+# Применяется ТОЛЬКО к xlsx; оригинальные CSV не модифицируются.
+COLUMN_REPLACEMENTS = {
+    "Название банка": [
+        {"keywords": ["сбер", "sber"], "replacement": "ПАО Сбербанк"},
+    ],
+}
+
 # Русские названия месяцев (явный словарь — не зависит от системной локали Render)
 RU_MONTHS = {
     1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
@@ -204,6 +214,45 @@ def apply_expected_columns(rows: list, sheet_name: str) -> tuple:
     return new_rows, base_name
 
 
+def apply_column_replacements(rows: list) -> int:
+    """
+    Применяет замены значений ячеек по правилам COLUMN_REPLACEMENTS.
+    Работает по имени столбца (из заголовка), поэтому универсальна для всех листов.
+
+    :param rows: строки CSV (первая строка — заголовок)
+    :return: количество заменённых ячеек
+    """
+    if not rows or len(rows) < 2:
+        return 0
+
+    header = rows[0]
+    replacements_count = 0
+
+    # Собираем индексы колонок, к которым применимы правила
+    applicable_cols = []
+    for col_idx, col_name in enumerate(header):
+        if col_name and col_name in COLUMN_REPLACEMENTS:
+            applicable_cols.append((col_idx, COLUMN_REPLACEMENTS[col_name]))
+
+    if not applicable_cols:
+        return 0
+
+    for row in rows[1:]:
+        for col_idx, rules in applicable_cols:
+            if col_idx >= len(row):
+                continue
+            val = row[col_idx]
+            if not val or not isinstance(val, str):
+                continue
+            val_lower = val.lower()
+            for rule in rules:
+                if any(kw.lower() in val_lower for kw in rule["keywords"]):
+                    row[col_idx] = rule["replacement"]
+                    replacements_count += 1
+                    break  # одно правило уже сработало
+    return replacements_count
+
+
 def parse_csv(content: bytes):
     """
     Парсит CSV из байтов в список строк.
@@ -246,6 +295,12 @@ def build_xlsx(sheets_data: dict) -> bytes:
                 f"({len(EXPECTED_COLUMNS[base_name])} шт.), "
                 f"строк данных: {max(len(rows) - 1, 0)}"
             )
+
+        # Применяем замены значений ячеек по правилам COLUMN_REPLACEMENTS
+        # (только в xlsx; оригинальные CSV не трогаются)
+        replacements = apply_column_replacements(rows)
+        if replacements > 0:
+            logger.info(f"Лист '{sheet_name}': заменено {replacements} ячеек по COLUMN_REPLACEMENTS")
 
         if not rows:
             ws["A1"] = "Нет данных"
